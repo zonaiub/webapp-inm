@@ -612,7 +612,11 @@ function buildPptPresentation(startDateStr, endDateStr) {
     const dataRange = tempSheet.getRange(headerRow, 1, rows.length + 1, 3);
     const chart = tempSheet.newChart().asComboChart().addRange(dataRange).setNumHeaders(1)
       .setOption('title', '').setOption('legend', { position: 'bottom' })
-      .setOption('series', { 0: { type: 'bars', color: '#f4b400', dataLabel: 'value' }, 1: { type: 'line', color: '#ea4335', lineWidth: 2, pointSize: 0 } })
+      .setOption('series', { 
+        0: { type: 'bars', color: '#f4b400', dataLabel: 'value' }, 
+        // Bagian angka dihilangkan, hanya menampilkan garis lurus biasa
+        1: { type: 'line', color: '#ea4335', lineWidth: 2, pointSize: 0 } 
+      })
       .setPosition(headerRow, 6, 0, 0).build();
     tempSheet.insertChart(chart);
     SpreadsheetApp.flush();
@@ -622,19 +626,126 @@ function buildPptPresentation(startDateStr, endDateStr) {
     const slide = pres.appendSlide(SlidesApp.PredefinedLayout.BLANK);
 
     const margin = 20, contentWidth = pres.getPageWidth() - margin * 2;
-    const bannerLeft = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, margin, 15, 100, 36);
+
+    // Menentukan teks dan simbol target
+    const isReverse = REVERSE_INDICATOR_NAMES.map(normText).indexOf(normText(ind.nama)) > -1;
+    const targetValText = (ind.target !== null && ind.target !== undefined && ind.target !== '') 
+      ? (isReverse ? '≤ ' : '≥ ') + ind.target + '%' 
+      : '-';
+
+    const leftBoxWidth = 80;
+    const targetBoxWidth = 140;
+    const nameBoxWidth = contentWidth - leftBoxWidth - targetBoxWidth;
+
+    // Header Kiri (INM)
+    const bannerLeft = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, margin, 15, leftBoxWidth, 36);
     bannerLeft.getFill().setSolidFill('#4a86c8');
     bannerLeft.getBorder().setTransparent();
     bannerLeft.getText().setText('INM').getTextStyle().setForegroundColor('#ffffff').setBold(true).setFontSize(14);
     bannerLeft.getText().getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
     bannerLeft.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
 
-    const bannerRight = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, margin + 100, 15, contentWidth - 100, 36);
+    // Header Tengah (Nama Indikator)
+    const bannerRight = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, margin + leftBoxWidth, 15, nameBoxWidth, 36);
     bannerRight.getFill().setSolidFill('#5a9bd8');
     bannerRight.getBorder().setTransparent();
     bannerRight.getText().setText(ind.nama).getTextStyle().setForegroundColor('#ffffff').setBold(true).setFontSize(14);
     bannerRight.getText().getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
     bannerRight.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
+
+    // Header Kanan (Badge Angka Target berwarna merah)
+    const bannerTarget = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, margin + leftBoxWidth + nameBoxWidth, 15, targetBoxWidth, 36);
+    bannerTarget.getFill().setSolidFill('#c5221f');
+    bannerTarget.getBorder().setTransparent();
+    bannerTarget.getText().setText('Target: ' + targetValText).getTextStyle().setForegroundColor('#ffffff').setBold(true).setFontSize(13);
+    bannerTarget.getText().getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
+    bannerTarget.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
+
+    slide.insertSheetsChart(embeddedChart, margin, 65, contentWidth, pres.getPageHeight() - 20 - 60 - 15 - 65);
+
+    const noteBox = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, margin, pres.getPageHeight() - 20 - 60, contentWidth, 60);
+    noteBox.getFill().setSolidFill('#d9ead3');
+    noteBox.getBorder().setTransparent();
+    noteBox.getText().setText((ind.alasan ? 'ANALISA (alasan dari ruangan):\n' + ind.alasan : 'ANALISA : [isi analisa di sini]') + '\nRTL : [isi rencana tindak lanjut di sini]');
+    noteBox.getText().getTextStyle().setFontSize(11).setBold(true);
+    noteBox.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
+
+    chartRow += rows.length + 3;
+  });
+
+  SpreadsheetApp.flush();
+  return { presId: pres.getId(), filename: presTitle.replace(/[^a-zA-Z0-9]/g, '_') + '.pptx', tempSheetName: tempSheet.getName() };
+}function buildPptPresentation(startDateStr, endDateStr) {
+  const reportData = computeReportData(startDateStr, endDateStr);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tempSheet = ss.insertSheet('TempChart_' + new Date().getTime());
+
+  const presTitle = 'Laporan Indikator Mutu ' + startDateStr + ' sd ' + endDateStr;
+  const pres = SlidesApp.create(presTitle);
+  const titleSlide = pres.getSlides()[0];
+  titleSlide.getShapes().forEach(function (sh) { try { sh.remove(); } catch (e) { } });
+  
+  titleSlide.insertTextBox('LAPORAN INDIKATOR MUTU', 40, 180, 860, 80).getText().getTextStyle().setFontSize(32).setBold(true);
+  titleSlide.insertTextBox(startDateStr + ' s.d ' + endDateStr, 40, 270, 860, 40).getText().getTextStyle().setFontSize(18);
+
+  let chartRow = 1;
+  reportData.forEach(function (ind) {
+    const headerRow = chartRow;
+    tempSheet.getRange(headerRow, 1, 1, 3).setValues([['Periode', 'Hasil (%)', 'Target (%)']]);
+    const rows = ind.buckets.map(function (b) { return [b.label, b.hasil, ind.target]; });
+    tempSheet.getRange(headerRow + 1, 1, rows.length, 3).setValues(rows);
+
+    const dataRange = tempSheet.getRange(headerRow, 1, rows.length + 1, 3);
+    const chart = tempSheet.newChart().asComboChart().addRange(dataRange).setNumHeaders(1)
+      .setOption('title', '').setOption('legend', { position: 'bottom' })
+      .setOption('series', { 
+        0: { type: 'bars', color: '#f4b400', dataLabel: 'value' }, 
+        // Bagian angka dihilangkan, hanya menampilkan garis lurus biasa
+        1: { type: 'line', color: '#ea4335', lineWidth: 2, pointSize: 0 } 
+      })
+      .setPosition(headerRow, 6, 0, 0).build();
+    tempSheet.insertChart(chart);
+    SpreadsheetApp.flush();
+
+    const chartsOnSheet = tempSheet.getCharts();
+    const embeddedChart = chartsOnSheet[chartsOnSheet.length - 1];
+    const slide = pres.appendSlide(SlidesApp.PredefinedLayout.BLANK);
+
+    const margin = 20, contentWidth = pres.getPageWidth() - margin * 2;
+
+    // Menentukan teks dan simbol target
+    const isReverse = REVERSE_INDICATOR_NAMES.map(normText).indexOf(normText(ind.nama)) > -1;
+    const targetValText = (ind.target !== null && ind.target !== undefined && ind.target !== '') 
+      ? (isReverse ? '≤ ' : '≥ ') + ind.target + '%' 
+      : '-';
+
+    const leftBoxWidth = 80;
+    const targetBoxWidth = 140;
+    const nameBoxWidth = contentWidth - leftBoxWidth - targetBoxWidth;
+
+    // Header Kiri (INM)
+    const bannerLeft = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, margin, 15, leftBoxWidth, 36);
+    bannerLeft.getFill().setSolidFill('#4a86c8');
+    bannerLeft.getBorder().setTransparent();
+    bannerLeft.getText().setText('INM').getTextStyle().setForegroundColor('#ffffff').setBold(true).setFontSize(14);
+    bannerLeft.getText().getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
+    bannerLeft.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
+
+    // Header Tengah (Nama Indikator)
+    const bannerRight = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, margin + leftBoxWidth, 15, nameBoxWidth, 36);
+    bannerRight.getFill().setSolidFill('#5a9bd8');
+    bannerRight.getBorder().setTransparent();
+    bannerRight.getText().setText(ind.nama).getTextStyle().setForegroundColor('#ffffff').setBold(true).setFontSize(14);
+    bannerRight.getText().getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
+    bannerRight.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
+
+    // Header Kanan (Badge Angka Target berwarna merah)
+    const bannerTarget = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, margin + leftBoxWidth + nameBoxWidth, 15, targetBoxWidth, 36);
+    bannerTarget.getFill().setSolidFill('#c5221f');
+    bannerTarget.getBorder().setTransparent();
+    bannerTarget.getText().setText('Target: ' + targetValText).getTextStyle().setForegroundColor('#ffffff').setBold(true).setFontSize(13);
+    bannerTarget.getText().getParagraphStyle().setParagraphAlignment(SlidesApp.ParagraphAlignment.CENTER);
+    bannerTarget.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
 
     slide.insertSheetsChart(embeddedChart, margin, 65, contentWidth, pres.getPageHeight() - 20 - 60 - 15 - 65);
 
