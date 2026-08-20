@@ -910,3 +910,38 @@ function resetPassword(username, ruangan) {
   }
   return { success: false, message: 'Gagal: Username tidak ditemukan.' };
 }
+
+function cekDanArsipOtomatis() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    // Membaca nama sheet master
+    const sheet = ss.getSheetByName(DATA_SHEET_NAME); 
+    if (!sheet) return;
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) return;
+
+    // Mengambil semua data 'Tanggal' yang ada di kolom B (kolom ke-2)
+    const dateValues = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+    const currentYear = new Date().getFullYear();
+    let yearsToArchive = [];
+
+    // Deteksi apakah ada data yang BUKAN tahun ini (tahun lalu atau tahun depan)
+    dateValues.forEach(row => {
+      if (row[0]) {
+        const y = new Date(row[0]).getFullYear();
+        if (y !== currentYear && yearsToArchive.indexOf(y) === -1) {
+          yearsToArchive.push(y); // Catat tahun yang nyasar
+        }
+      }
+    });
+
+    // Jika ketemu data tahun lain, jalankan fungsi arsip untuk memindahkannya detik itu juga!
+    yearsToArchive.forEach(y => {
+      archiveData(y);
+    });
+
+  } catch (e) {
+    Logger.log("Gagal auto-arsip: " + e.message);
+  }
+}
