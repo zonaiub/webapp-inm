@@ -380,9 +380,15 @@ function submitData(payload) {
     }
 
     const rowValues = [now, new Date(tanggal), ruangan, entry.indikator, Number(entry.numerator) || 0, Number(entry.denominator) || 0, payload.diisiOleh || '', entry.keterangan || ''];
-    if (foundRowIndex > -1) sheet.getRange(foundRowIndex, 1, 1, DATA_HEADERS.length).setValues([rowValues]);
-    else sheet.appendRow(rowValues);
+    
+    if (foundRowIndex > -1) {
+      sheet.getRange(foundRowIndex, 1, 1, DATA_HEADERS.length).setValues([rowValues]);
+    } else {
+      sheet.appendRow(rowValues);
+    }
   });
+
+  cekDanArsipOtomatis(); 
 
   return { status: 'ok', message: 'Data tersimpan.' };
 }
