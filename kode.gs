@@ -19,7 +19,7 @@ const DATA_SHEET_NAME = 'Data Master';
 const USERS_SHEET_NAME = 'Users';
 
 // Header kolom di sheet "Data Master". JANGAN diubah urutannya
-const DATA_HEADERS = ['Timestamp', 'Tanggal', 'Ruangan', 'Indikator', 'Numerator', 'Denominator', 'Diisi Oleh', 'Keterangan'];
+const DATA_HEADERS = ['Timestamp', 'Tanggal', 'Ruangan', 'Indikator', 'Numerator', 'Denominator', 'Diisi Oleh', 'Keterangan', 'Status Validasi', 'Populasi', 'Sampel', 'Num Sampel', 'Link Bukti', 'Catatan Validator'];
 
 // Indikator yang arah targetnya kebalik: target itu batas MAKSIMAL.
 const REVERSE_INDICATOR_NAMES = ['Penundaan Operasi Elektif'];
@@ -379,7 +379,18 @@ function submitData(payload) {
       }
     }
 
-    const rowValues = [now, new Date(tanggal), ruangan, entry.indikator, Number(entry.numerator) || 0, Number(entry.denominator) || 0, payload.diisiOleh || '', entry.keterangan || ''];
+    // PIC input, otomatis diset Menunggu, dan sisa kolom validasi dikosongkan
+    const rowValues = [
+      now, 
+      new Date(tanggal), 
+      ruangan, 
+      entry.indikator, 
+      Number(entry.numerator) || 0, 
+      Number(entry.denominator) || 0, 
+      payload.diisiOleh || '', 
+      entry.keterangan || '',
+      '⏳ Menunggu', '', '', '', '', ''
+    ];
     
     if (foundRowIndex > -1) {
       sheet.getRange(foundRowIndex, 1, 1, DATA_HEADERS.length).setValues([rowValues]);
@@ -949,5 +960,87 @@ function cekDanArsipOtomatis() {
 
   } catch (e) {
     Logger.log("Gagal auto-arsip: " + e.message);
+  }
+}
+
+/**
+ * Mengambil daftar data yang statusnya masih "Menunggu"
+ * Dipanggil dari menu khusus Validator
+ */
+function getPendingValidations(username) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Data Master');
+  var data = sheet.getDataRange().getValues();
+  
+  // Baca pengaturan Config untuk nge-cek jatah indikator tiap Validator
+  var sheetConfig = ss.getSheetByName('Config');
+  var configData = sheetConfig.getDataRange().getValues();
+  var headerConfig = configData[0];
+  var idxInd = headerConfig.indexOf('Daftar Indikator');
+  var idxVal = headerConfig.indexOf('Username Validator');
+  
+  var valMap = {};
+  if(idxInd > -1 && idxVal > -1) {
+    for (var i = 1; i < configData.length; i++) {
+      var indikator = configData[i][idxInd];
+      var penilai = configData[i][idxVal];
+      if (indikator) {
+        valMap[indikator.toString().trim()] = penilai ? penilai.toString().trim().toLowerCase() : "";
+      }
+    }
+  }
+
+  var pending = [];
+  var header = data[0];
+  var idxStatus = header.indexOf('Status Validasi');
+  if(idxStatus === -1) idxStatus = 8; // Default indeks ke-8
+
+  var usr = username ? username.toString().trim().toLowerCase() : "";
+
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (row[idxStatus] === '⏳ Menunggu') {
+      var indName = row[3] ? row[3].toString().trim() : "";
+      var hakVal = valMap[indName] || "";
+      
+      // LOGIKA FILTER: Jika validator cocok dengan config ATAU user adalah admin, maka tampilkan
+      if (hakVal === usr || usr === 'admin') {
+        pending.push({
+          rowIndex: i + 1,
+          tanggal: Utilities.formatDate(new Date(row[1]), Session.getScriptTimeZone(), "dd-MM-yyyy"),
+          ruangan: row[2],
+          indikator: indName,
+          numerator: row[4],
+          denominator: row[5],
+          pic: row[6]
+        });
+      }
+    }
+  }
+  
+  pending.reverse(); // Urutkan biar tugas terbaru di atas
+  return pending;
+}
+
+/**
+ * Menyimpan data hasil inputan dari tim Validator ke Master
+ */
+function saveValidation(payload) {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(DATA_SHEET_NAME);
+    
+    // Setel nilai ke kolom 9 (Status) sampai 14 (Catatan)
+    sheet.getRange(payload.rowIndex, 9, 1, 6).setValues([[
+      payload.status,
+      payload.populasi || '',
+      payload.sampel || '',
+      payload.numSampel || '',
+      payload.link || '',
+      payload.catatan || ''
+    ]]);
+    
+    return { success: true, message: "Validasi berhasil disimpan!" };
+  } catch(e) {
+    return { success: false, message: "Gagal menyimpan: " + e.message };
   }
 }
